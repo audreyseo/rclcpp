@@ -292,17 +292,31 @@ using OnParametersSetCallbackType =
 
 RCLCPP_LOCAL
 rcl_interfaces::msg::SetParametersResult
+__call_on_parameters_set_callbacks(
+  const std::vector<rclcpp::Parameter> & parameters,
+  const std::vector<OnParametersSetCallbackType> callbacks)
+{
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+  for (auto & callback : callbacks) {
+    result = callback(parameters);
+    if (!result.successful) {
+      return result;
+    }
+  }
+  return result;
+}
+
+RCLCPP_LOCAL
+rcl_interfaces::msg::SetParametersResult
 __set_parameters_atomically_common(
   const std::vector<rclcpp::Parameter> & parameters,
   std::map<std::string, rclcpp::node_interfaces::ParameterInfo> & parameter_infos,
-  OnParametersSetCallbackType on_set_parameters_callback)
+  const std::vector<OnParametersSetCallbackType> & callbacks)
 {
   // Call the user callback to see if the new value(s) are allowed.
-  rcl_interfaces::msg::SetParametersResult result;
-  result.successful = true;
-  if (on_set_parameters_callback) {
-    result = on_set_parameters_callback(parameters);
-  }
+  rcl_interfaces::msg::SetParametersResult result =
+    __call_on_parameters_set_callbacks(parameters, callbacks);
   if (!result.successful) {
     return result;
   }
@@ -333,7 +347,7 @@ __declare_parameter_common(
   const rcl_interfaces::msg::ParameterDescriptor & parameter_descriptor,
   std::map<std::string, rclcpp::node_interfaces::ParameterInfo> & parameters_out,
   const std::map<std::string, rclcpp::ParameterValue> & overrides,
-  OnParametersSetCallbackType on_set_parameters_callback,
+  const std::vector<OnParametersSetCallbackType> & callbacks,
   rcl_interfaces::msg::ParameterEvent * parameter_event_out,
   bool ignore_override = false)
 {
@@ -354,7 +368,7 @@ __declare_parameter_common(
   auto result = __set_parameters_atomically_common(
     parameter_wrappers,
     parameter_infos,
-    on_set_parameters_callback);
+    callbacks);
 
   // Add declared parameters to storage.
   parameters_out[name] = parameter_infos.at(name);
@@ -394,7 +408,7 @@ NodeParameters::declare_parameter(
     parameter_descriptor,
     parameters_,
     parameter_overrides_,
-    on_parameters_set_callback_,
+    on_parameters_set_callbacks_,
     &parameter_event,
     ignore_override);
 
@@ -526,7 +540,7 @@ NodeParameters::set_parameters_atomically(const std::vector<rclcpp::Parameter> &
       rcl_interfaces::msg::ParameterDescriptor(),  // Implicit declare uses default descriptor.
       staged_parameter_changes,
       parameter_overrides_,
-      nullptr,  // callback is explicitly null, so that it is called only once, when setting below.
+      {},  // callback is explicitly null, so that it is called only once, when setting below.
       &parameter_event_msg,
       true);
     if (!result.successful) {
@@ -582,7 +596,7 @@ NodeParameters::set_parameters_atomically(const std::vector<rclcpp::Parameter> &
     // they are actually set on the official parameter storage
     parameters_,
     // this will get called once, with all the parameters to be set
-    on_parameters_set_callback_);
+    on_parameters_set_callbacks_);
 
   // If not successful, then stop here.
   if (!result.successful) {
@@ -817,9 +831,25 @@ NodeParameters::list_parameters(const std::vector<std::string> & prefixes, uint6
 NodeParameters::OnParametersSetCallbackType
 NodeParameters::set_on_parameters_set_callback(OnParametersSetCallbackType callback)
 {
-  auto existing_callback = on_parameters_set_callback_;
-  on_parameters_set_callback_ = callback;
-  return existing_callback;
+  OnParametersSetCallbackType old_callback;
+  if (on_parameters_set_callbacks_.size()) {
+    old_callback =
+      // don't catch `this`, pass the vector by value
+      [callbacks = this->on_parameters_set_callbacks_]
+        (const std::vector<rclcpp::Parameter> & parameters) ->
+      rcl_interfaces::msg::SetParametersResult
+      {
+        return __call_on_parameters_set_callbacks(parameters, callbacks);
+      };
+  } else {
+    old_callback = nullptr;
+  }
+  if (callback) {
+    on_parameters_set_callbacks_.push_back(callback);
+  } else {
+    on_parameters_set_callbacks_.resize(0);
+  }
+  return old_callback;
 }
 
 #if !defined(_WIN32)
@@ -832,12 +862,9 @@ NodeParameters::set_on_parameters_set_callback(OnParametersSetCallbackType callb
 void
 NodeParameters::register_param_change_callback(ParametersCallbackFunction callback)
 {
-  if (on_parameters_set_callback_) {
-    RCLCPP_WARN(
-      node_logging_->get_logger(),
-      "on_parameters_set_callback already registered, overwriting previous callback");
+  if (callback) {
+    on_parameters_set_callbacks_.push_back(callback);
   }
-  on_parameters_set_callback_ = callback;
 }
 #if !defined(_WIN32)
 # pragma GCC diagnostic pop

@@ -151,7 +151,7 @@ private:
 
   mutable std::mutex mutex_;
 
-  OnParametersSetCallbackType on_parameters_set_callback_ = nullptr;
+  std::vector<OnParametersSetCallbackType> on_parameters_set_callbacks_;
 
   std::map<std::string, ParameterInfo> parameters_;
 
