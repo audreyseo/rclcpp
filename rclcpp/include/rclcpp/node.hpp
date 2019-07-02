@@ -222,9 +222,9 @@ public:
   /// Create and return a Subscription.
   /**
    * \param[in] topic_name The topic to subscribe on.
+   * \param[in] qos The Quality of Service settings for the subscription.
    * \param[in] callback The user-defined callback function to receive a message
-   * \param[in] qos_history_depth The depth of the subscription's incoming message queue.
-   * \param[in] options Additional options for the creation of the Subscription.
+   * \param[in] options Additional options for the creation of the subscription.
    * \param[in] msg_mem_strat The message memory strategy to use for allocating messages.
    * \return Shared pointer to the created subscription.
    */
